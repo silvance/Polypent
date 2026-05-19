@@ -1,0 +1,19 @@
+# Compiled binaries
+/bin/
+/dist/
+
+# Test/coverage output
+*.out
+*.test
+coverage.*
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
+
+# Local config (never committed)
+*.local.yaml
+*.local.yml
+.env
+.env.*
