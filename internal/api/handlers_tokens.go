@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -88,4 +89,78 @@ func (s *Server) handleIssueToken(w http.ResponseWriter, r *http.Request) {
 		Name:      tok.Name,
 		ExpiresAt: tok.ExpiresAt,
 	})
+}
+
+// handleListTokens returns metadata-only summaries. Admin sees all;
+// project-scoped callers see only their project's tokens.
+func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
+	pr, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var filter *uuid.UUID
+	if pr.Role != auth.RoleAdmin {
+		if pr.ProjectID == nil {
+			writeError(w, http.StatusForbidden, "no project scope")
+			return
+		}
+		filter = pr.ProjectID
+	}
+	tokens, err := s.deps.Tokens.List(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tokens": tokens})
+}
+
+// handleRevokeToken revokes a token. Admin may revoke any token; an
+// owner may revoke tokens scoped to their own project. A token may
+// always revoke itself.
+func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseUUIDPath(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid token id")
+		return
+	}
+	pr, ok := auth.FromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	target, err := s.deps.Tokens.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, auth.ErrUnauthorized) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "lookup failed")
+		return
+	}
+
+	authorized := pr.Role == auth.RoleAdmin || pr.TokenID == id
+	if !authorized && pr.Role == auth.RoleOwner && target.ProjectID != nil && pr.ProjectID != nil && *target.ProjectID == *pr.ProjectID {
+		authorized = true
+	}
+	if !authorized {
+		writeError(w, http.StatusForbidden, "cannot revoke this token")
+		return
+	}
+
+	if err := s.deps.Tokens.Revoke(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, "revoke failed")
+		return
+	}
+	if _, err := s.deps.Audit.Append(r.Context(), audit.Event{
+		ProjectID:    target.ProjectID,
+		ActorTokenID: &pr.TokenID,
+		Action:       "token.revoke",
+		TargetKind:   "token",
+		TargetID:     id.String(),
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "audit append failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

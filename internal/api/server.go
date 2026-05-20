@@ -65,6 +65,8 @@ func New(addr string, shutdownTimeout time.Duration, deps Deps) *Server {
 	authed.HandleFunc("GET /v1/projects/{id}", s.handleGetProject)
 	authed.HandleFunc("PATCH /v1/projects/{id}", s.handleUpdateProject)
 	authed.HandleFunc("POST /v1/tokens", s.handleIssueToken)
+	authed.HandleFunc("GET /v1/tokens", s.handleListTokens)
+	authed.HandleFunc("POST /v1/tokens/{id}/revoke", s.handleRevokeToken)
 
 	authed.HandleFunc("POST /v1/projects/{id}/scope", s.handleCreateScopeRule)
 	authed.HandleFunc("GET /v1/projects/{id}/scope", s.handleListScopeRules)

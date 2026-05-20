@@ -149,6 +149,83 @@ func (s *Store) HasAny(ctx context.Context) (bool, error) {
 	return n > 0, nil
 }
 
+// Summary is the metadata-only view of a token. Plaintext is never
+// exposed after issuance.
+type Summary struct {
+	ID         uuid.UUID  `json:"id"`
+	ProjectID  *uuid.UUID `json:"project_id,omitempty"`
+	Role       Role       `json:"role"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+}
+
+// List returns token summaries. If projectID is non-nil, only tokens
+// scoped to that project are returned; otherwise all tokens (admin use).
+func (s *Store) List(ctx context.Context, projectID *uuid.UUID) ([]Summary, error) {
+	q := `SELECT id, project_id, role, name, created_at, expires_at,
+	             revoked_at, last_used_at
+	      FROM api_tokens`
+	args := []any{}
+	if projectID != nil {
+		q += " WHERE project_id = $1"
+		args = append(args, *projectID)
+	}
+	q += " ORDER BY created_at ASC"
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Summary
+	for rows.Next() {
+		var s Summary
+		if err := rows.Scan(&s.ID, &s.ProjectID, (*string)(&s.Role), &s.Name,
+			&s.CreatedAt, &s.ExpiresAt, &s.RevokedAt, &s.LastUsedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// Get returns one summary by id.
+func (s *Store) Get(ctx context.Context, id uuid.UUID) (Summary, error) {
+	var su Summary
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, project_id, role, name, created_at, expires_at,
+		       revoked_at, last_used_at
+		FROM api_tokens WHERE id = $1`, id,
+	).Scan(&su.ID, &su.ProjectID, (*string)(&su.Role), &su.Name,
+		&su.CreatedAt, &su.ExpiresAt, &su.RevokedAt, &su.LastUsedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Summary{}, ErrUnauthorized
+	}
+	if err != nil {
+		return Summary{}, err
+	}
+	return su, nil
+}
+
+// Revoke marks a token as revoked. Idempotent: re-revoking a revoked
+// token is a no-op.
+func (s *Store) Revoke(ctx context.Context, id uuid.UUID) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE api_tokens SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		// Either unknown or already revoked. Distinguish by reading.
+		if _, err := s.Get(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ErrUnauthorized is returned for any failed authentication; the cause is
 // deliberately not exposed to the caller.
 var ErrUnauthorized = errors.New("unauthorized")
