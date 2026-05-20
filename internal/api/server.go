@@ -13,6 +13,8 @@ import (
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
 	"github.com/silvance/polypent/internal/project"
+	"github.com/silvance/polypent/internal/scope"
+	"github.com/silvance/polypent/internal/target"
 )
 
 // Deps is the explicit dependency set the API needs.
@@ -21,6 +23,8 @@ type Deps struct {
 	Projects *project.Store
 	Tokens   *auth.Store
 	Audit    *audit.Logger
+	Scope    *scope.Store
+	Targets  *target.Store
 }
 
 // Server wraps an *http.Server with PolyPent's handler tree.
@@ -46,6 +50,13 @@ func New(addr string, shutdownTimeout time.Duration, deps Deps) *Server {
 	authed.HandleFunc("GET /v1/projects/{id}", s.handleGetProject)
 	authed.HandleFunc("PATCH /v1/projects/{id}", s.handleUpdateProject)
 	authed.HandleFunc("POST /v1/tokens", s.handleIssueToken)
+
+	authed.HandleFunc("POST /v1/projects/{id}/scope", s.handleCreateScopeRule)
+	authed.HandleFunc("GET /v1/projects/{id}/scope", s.handleListScopeRules)
+	authed.HandleFunc("DELETE /v1/projects/{id}/scope/{rule_id}", s.handleDeleteScopeRule)
+	authed.HandleFunc("POST /v1/projects/{id}/scope/check", s.handleScopeCheck)
+	authed.HandleFunc("POST /v1/projects/{id}/targets", s.handleUpsertTarget)
+	authed.HandleFunc("GET /v1/projects/{id}/targets", s.handleListTargets)
 
 	authedH := chain(authed,
 		auth.Middleware(deps.Tokens),

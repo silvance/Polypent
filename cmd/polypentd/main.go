@@ -25,7 +25,9 @@ import (
 	"github.com/silvance/polypent/internal/auth"
 	"github.com/silvance/polypent/internal/config"
 	"github.com/silvance/polypent/internal/project"
+	"github.com/silvance/polypent/internal/scope"
 	pgstore "github.com/silvance/polypent/internal/store/postgres"
+	"github.com/silvance/polypent/internal/target"
 	"github.com/silvance/polypent/internal/telemetry"
 	"github.com/silvance/polypent/internal/version"
 )
@@ -108,6 +110,8 @@ func runServe(args []string) int {
 		Projects: projects,
 		Tokens:   tokens,
 		Audit:    auditLog,
+		Scope:    scope.NewStore(pool),
+		Targets:  target.NewStore(pool),
 	})
 	log.Info("server listening", "addr", cfg.Server.Addr)
 	if err := srv.ListenAndServeWithShutdown(ctx, cfg.Server.ShutdownTimeout); err != nil && !errors.Is(err, http.ErrServerClosed) {

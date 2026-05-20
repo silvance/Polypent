@@ -17,7 +17,9 @@ import (
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
 	"github.com/silvance/polypent/internal/project"
+	"github.com/silvance/polypent/internal/scope"
 	pgstore "github.com/silvance/polypent/internal/store/postgres"
+	"github.com/silvance/polypent/internal/target"
 )
 
 // testDSN returns the DSN for a Postgres database to run integration tests
@@ -69,6 +71,8 @@ func newTestServer(t *testing.T, dsn string) (*httptest.Server, auth.Token) {
 		Projects: projects,
 		Tokens:   tokens,
 		Audit:    logger,
+		Scope:    scope.NewStore(pool),
+		Targets:  target.NewStore(pool),
 	})
 
 	httptestSrv := httptest.NewServer(srv.Handler)

@@ -12,6 +12,13 @@ linters:
     - staticcheck
     - unused
     - gosec
+  exclusions:
+    # Property tests use math/rand/v2 for input generation; that's not a
+    # crypto context and G404 doesn't apply.
+    rules:
+      - linters: [gosec]
+        path: _test\.go
+        text: "G404"
 
 formatters:
   enable:
