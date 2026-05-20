@@ -20,6 +20,7 @@ import (
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
 	"github.com/silvance/polypent/internal/scope"
+	"github.com/silvance/polypent/internal/secrets"
 	"github.com/silvance/polypent/internal/target"
 )
 
@@ -40,6 +41,7 @@ type Deps struct {
 	Artifacts    artifact.Store
 	ArtifactMeta *artifact.MetaStore
 	Catalog      *catalog.Store
+	Secrets      *secrets.Vault
 }
 
 // Server wraps an *http.Server with PolyPent's handler tree.
@@ -87,6 +89,10 @@ func New(addr string, shutdownTimeout time.Duration, deps Deps) *Server {
 	authed.HandleFunc("GET /v1/collectors", s.handleListCatalog)
 	authed.HandleFunc("POST /v1/collectors", s.handleUpsertCatalog)
 	authed.HandleFunc("DELETE /v1/collectors/{name}", s.handleDeleteCatalog)
+
+	authed.HandleFunc("PUT /v1/projects/{id}/secrets/{key}", s.handlePutSecret)
+	authed.HandleFunc("GET /v1/projects/{id}/secrets", s.handleListSecrets)
+	authed.HandleFunc("DELETE /v1/projects/{id}/secrets/{key}", s.handleDeleteSecret)
 
 	authedH := chain(authed,
 		auth.Middleware(deps.Tokens),

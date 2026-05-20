@@ -25,6 +25,7 @@ import (
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
 	"github.com/silvance/polypent/internal/scope"
+	"github.com/silvance/polypent/internal/secrets"
 	pgstore "github.com/silvance/polypent/internal/store/postgres"
 	"github.com/silvance/polypent/internal/target"
 )
@@ -83,6 +84,7 @@ func newTestServer(t *testing.T, dsn string) (*httptest.Server, auth.Token) {
 		t.Fatalf("artifact store: %v", err)
 	}
 	artifactMD := artifact.NewMetaStore(pool)
+	vault, _ := secrets.New(pool, []byte("test-key-32-bytes-aaaaaaaaaaaaaaaa"))
 	srv := api.New(":0", time.Second, api.Deps{
 		Logger:       slogger,
 		Projects:     projects,
@@ -99,6 +101,7 @@ func newTestServer(t *testing.T, dsn string) (*httptest.Server, auth.Token) {
 		Artifacts:    artifactsFS,
 		ArtifactMeta: artifactMD,
 		Catalog:      catalog.NewStore(pool),
+		Secrets:      vault,
 	})
 
 	httptestSrv := httptest.NewServer(srv.Handler)

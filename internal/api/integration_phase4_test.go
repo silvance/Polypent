@@ -27,6 +27,7 @@ import (
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
 	"github.com/silvance/polypent/internal/scope"
+	"github.com/silvance/polypent/internal/secrets"
 	pgstore "github.com/silvance/polypent/internal/store/postgres"
 	"github.com/silvance/polypent/internal/target"
 	"github.com/silvance/polypent/internal/worker"
@@ -94,6 +95,7 @@ func newFullStack(t *testing.T) *fullStack {
 	}
 	artifactMD := artifact.NewMetaStore(pgPool)
 	cat := catalog.NewStore(pgPool)
+	vault, _ := secrets.New(pgPool, []byte("p4-key-32-bytes-aaaaaaaaaaaaaaaaa"))
 
 	reg := collector.NewRegistry()
 	reg.Register(mock.New())
@@ -126,6 +128,7 @@ func newFullStack(t *testing.T) *fullStack {
 		Artifacts:    artifactsFS,
 		ArtifactMeta: artifactMD,
 		Catalog:      cat,
+		Secrets:      vault,
 	})
 	ht := httptest.NewServer(srv.Handler)
 

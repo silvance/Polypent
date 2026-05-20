@@ -39,6 +39,7 @@ import (
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
 	"github.com/silvance/polypent/internal/scope"
+	"github.com/silvance/polypent/internal/secrets"
 	pgstore "github.com/silvance/polypent/internal/store/postgres"
 	"github.com/silvance/polypent/internal/target"
 	"github.com/silvance/polypent/internal/telemetry"
@@ -124,6 +125,11 @@ func runServe(args []string) int {
 	planner := run.NewPlanner(pool, q, scopeStore, auditLog)
 	runs := run.NewStore(pool)
 	findings := finding.NewStore(pool)
+	vault, err := secrets.New(pool, []byte(cfg.Audit.SigningKey))
+	if err != nil {
+		log.Error("secrets vault", "err", err)
+		return 1
+	}
 
 	artifactsFS, err := artifact.NewLocalFS(cfg.Storage.ArtifactsDir)
 	if err != nil {
@@ -185,6 +191,7 @@ func runServe(args []string) int {
 		Artifacts:    artifactsFS,
 		ArtifactMeta: artifactMD,
 		Catalog:      catStore,
+		Secrets:      vault,
 	})
 	log.Info("server listening", "addr", cfg.Server.Addr, "workers", cfg.Queue.Workers)
 	srvErr := srv.ListenAndServeWithShutdown(ctx, cfg.Server.ShutdownTimeout)
