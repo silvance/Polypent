@@ -26,6 +26,7 @@ import (
 	"github.com/silvance/polypent/internal/auth"
 	"github.com/silvance/polypent/internal/catalog"
 	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/collector/dnspassive"
 	"github.com/silvance/polypent/internal/collector/httpprobe"
 	"github.com/silvance/polypent/internal/collector/mock"
 	"github.com/silvance/polypent/internal/config"
@@ -132,6 +133,7 @@ func runServe(args []string) int {
 	reg := collector.NewRegistry()
 	reg.Register(mock.New())
 	reg.Register(httpprobe.New())
+	reg.Register(dnspassive.New())
 	// Hydrate the registry from the persistent catalog.
 	if entries, err := catStore.List(ctx); err == nil {
 		for _, e := range entries {
