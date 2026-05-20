@@ -145,8 +145,9 @@ curl -H "Authorization: Bearer $POLYPENT_API_TOKEN" \
 
 ## 8. Register an external collector (optional)
 
-Drop a Python collector following the NDJSON protocol (see
-`collectors/python/echo/main.py`), make it executable, and register it:
+Drop a collector following the NDJSON protocol (see
+`docs/collector-protocol.md` and the reference implementations under
+`collectors/`), make it executable, and register it:
 
 ```sh
 curl -X POST -H "Authorization: Bearer $POLYPENT_API_TOKEN" \
@@ -159,3 +160,23 @@ curl -X POST -H "Authorization: Bearer $POLYPENT_API_TOKEN" \
 
 It is now dispatchable as `--capabilities echo` in subsequent
 `polypent run create` calls.
+
+The repository ships four reference external collectors that all pass
+the protocol conformance suite (`internal/conformance`):
+
+| binary                                                          | language | what it does                         |
+|-----------------------------------------------------------------|----------|--------------------------------------|
+| `collectors/python/echo/main.py`                                | python   | scripted lifecycle for tests / smoke |
+| `collectors/python/smb_enum/main.py`                            | python   | SMB negotiate (live with impacket)   |
+| `collectors/python/ldap_enum/main.py`                           | python   | anonymous-bind discovery (ldap3)     |
+| `collectors/rust/target/release/discover-tcp`                   | rust     | bounded high-throughput TCP scan     |
+
+The Python collectors degrade to a structural "dry run" emission when
+their optional dependencies (impacket, ldap3) are not installed, so the
+protocol conformance suite passes on any host.
+
+Build the Rust collector once with:
+
+```sh
+cargo build --release --manifest-path collectors/rust/Cargo.toml
+```

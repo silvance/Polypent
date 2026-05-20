@@ -1,0 +1,19 @@
+[project]
+name = "polypent-collectors-python"
+version = "0.1.0"
+description = "PolyPent reference Python collectors. Each is a self-contained NDJSON emitter; live-probe behavior requires the listed optional dependencies."
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+smb = ["impacket>=0.11.0"]
+ldap = ["ldap3>=2.9"]
+all = ["impacket>=0.11.0", "ldap3>=2.9"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+# These are reference collectors, not a package: each main.py is a
+# script with a shebang. The pyproject is here so a developer can do
+#   pip install -e '.[smb]'
+# to pull the optional dep, and so the CI lane has a single canonical
+# install command.

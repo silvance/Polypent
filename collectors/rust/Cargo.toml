@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["discover-tcp"]
+
+# PolyPent Rust collectors workspace.
+#
+# Each member is a self-contained binary that follows
+# docs/collector-protocol.md: reads one JobDescriptor on stdin and emits
+# NDJSON events on stdout.
+#
+# Workspace deps stay minimal to keep build time bounded; we explicitly
+# avoid pulling in tokio or async runtimes when std-lib threading is
+# sufficient.
+[workspace.package]
+edition = "2021"
+rust-version = "1.74"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+serde_json = "1"

@@ -17,3 +17,12 @@ coverage.*
 *.local.yml
 .env
 .env.*
+
+# Rust workspace build outputs
+collectors/rust/target/
+collectors/rust/Cargo.lock
+
+# Python tooling
+collectors/python/**/__pycache__/
+*.pyc
+*.egg-info/
