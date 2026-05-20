@@ -135,6 +135,9 @@ func newFullStack(t *testing.T) *fullStack {
 		Findings:     findings,
 		Artifacts:    artifactsFS,
 		ArtifactMeta: artifactMD,
+		Targets:      target.NewStore(pgPool),
+		Scope:        sc,
+		Audit:        auditLog,
 	})
 	done := make(chan struct{})
 	go func() {

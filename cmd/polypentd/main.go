@@ -159,6 +159,9 @@ func runServe(args []string) int {
 		Findings:     findings,
 		Artifacts:    artifactsFS,
 		ArtifactMeta: artifactMD,
+		Targets:      target.NewStore(pool),
+		Scope:        scopeStore,
+		Audit:        auditLog,
 	})
 	workerDone := make(chan struct{})
 	go func() {

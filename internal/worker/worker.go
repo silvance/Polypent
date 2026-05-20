@@ -19,10 +19,13 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/silvance/polypent/internal/artifact"
+	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/collector"
 	"github.com/silvance/polypent/internal/finding"
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
+	"github.com/silvance/polypent/internal/scope"
+	"github.com/silvance/polypent/internal/target"
 )
 
 // Pool is a bounded set of worker goroutines.
@@ -36,14 +39,17 @@ type Pool struct {
 	findings   *finding.Store
 	artifacts  artifact.Store
 	artifactMD *artifact.MetaStore
+	targets    *target.Store
+	scope      *scope.Store
+	auditLog   *audit.Logger
 
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
 }
 
-// Options configures the pool. Findings, Artifacts, and ArtifactMeta are
-// optional: when nil, worker simply records raw events without doing the
-// finding/artifact ingestion.
+// Options configures the pool. Findings, Artifacts, ArtifactMeta, Targets,
+// Scope, and Audit are optional: when nil, the worker degrades to recording
+// raw events without doing the corresponding ingestion (Phase 3 behavior).
 type Options struct {
 	WorkerID     string
 	Size         int
@@ -51,6 +57,9 @@ type Options struct {
 	Findings     *finding.Store
 	Artifacts    artifact.Store
 	ArtifactMeta *artifact.MetaStore
+	Targets      *target.Store
+	Scope        *scope.Store
+	Audit        *audit.Logger
 }
 
 // New constructs a Pool. Run() actually starts the goroutines.
@@ -74,6 +83,9 @@ func New(q *queue.Queue, reg *collector.Registry, logger *slog.Logger, opts Opti
 		findings:   opts.Findings,
 		artifacts:  opts.Artifacts,
 		artifactMD: opts.ArtifactMeta,
+		targets:    opts.Targets,
+		scope:      opts.Scope,
+		auditLog:   opts.Audit,
 	}
 }
 
@@ -226,6 +238,10 @@ func (p *Pool) makeEmit(job queue.Job, labels map[string]string, log *slog.Logge
 			if err := p.ingestFinding(ctx, job, labels, e.Payload, log); err != nil {
 				log.Warn("ingest finding", "err", err)
 			}
+		case "target_discovered":
+			if err := p.ingestDiscoveredTarget(ctx, job, e.Payload, log); err != nil {
+				log.Warn("ingest target_discovered", "err", err)
+			}
 		}
 		return p.q.RecordEvent(ctx, job.ID, e.Kind, e.Payload)
 	}
@@ -272,6 +288,19 @@ func (p *Pool) ingestArtifact(ctx context.Context, job queue.Job, labels map[str
 
 func (p *Pool) ingestFinding(ctx context.Context, job queue.Job, labels map[string]string, payload map[string]any, log *slog.Logger) error {
 	if p.findings == nil {
+		return nil
+	}
+	// Quarantine guard: if the collector tries to attribute a finding to
+	// a target different from the one in its job descriptor, treat it as
+	// a scope violation and audit-quarantine.
+	if claimedKind, ok := payload["target_kind"].(string); ok && claimedKind != "" && claimedKind != job.TargetKind {
+		payload["quarantined"] = "target_kind_mismatch"
+		p.auditQuarantine(ctx, job, payload, "target_kind_mismatch")
+		return nil
+	}
+	if claimedID, ok := payload["target_identity"].(string); ok && claimedID != "" && claimedID != job.TargetIdentity {
+		payload["quarantined"] = "target_identity_mismatch"
+		p.auditQuarantine(ctx, job, payload, "target_identity_mismatch")
 		return nil
 	}
 	in := finding.Input{
@@ -324,4 +353,90 @@ func (p *Pool) ingestFinding(ctx context.Context, job queue.Job, labels map[stri
 	payload["inserted"] = res.Inserted
 	log.Info("finding ingested", "id", res.Finding.ID, "inserted", res.Inserted)
 	return nil
+}
+
+// ingestDiscoveredTarget records a collector's `target_discovered` event
+// after scope-checking the proposed target. Allowed targets are upserted
+// with provenance="run"; deny/out_of_scope targets are dropped and
+// audit-logged so the operator can review.
+func (p *Pool) ingestDiscoveredTarget(ctx context.Context, job queue.Job, payload map[string]any, log *slog.Logger) error {
+	if p.targets == nil || p.scope == nil {
+		return nil
+	}
+	kind, _ := payload["kind"].(string)
+	identity, _ := payload["identity"].(string)
+	if kind == "" || identity == "" {
+		return nil
+	}
+	tg := scope.Target{
+		Kind:     scope.TargetKind(kind),
+		Identity: identity,
+	}
+	if h, ok := payload["host"].(string); ok {
+		tg.Host = h
+	} else if kind == "host" {
+		tg.Host = identity
+	}
+
+	rules, err := p.scope.List(ctx, job.ProjectID)
+	if err != nil {
+		return fmt.Errorf("scope list: %w", err)
+	}
+	res := scope.Evaluate(tg, rules, time.Now())
+	if res.Effect != scope.EffectAllow {
+		payload["scope_effect"] = string(res.Effect)
+		payload["scope_reason"] = res.Reason
+		if p.auditLog != nil {
+			_, _ = p.auditLog.Append(ctx, audit.Event{
+				ProjectID:  &job.ProjectID,
+				Action:     "scope.dropped",
+				TargetKind: kind,
+				TargetID:   identity,
+				Metadata: map[string]any{
+					"effect": string(res.Effect),
+					"reason": res.Reason,
+					"source": "target_discovered",
+					"job_id": job.ID.String(),
+				},
+			})
+		}
+		log.Info("dropped target_discovered (scope)", "kind", kind, "identity", identity, "effect", res.Effect)
+		return nil
+	}
+
+	attrs, _ := payload["attributes"].(map[string]any)
+	t, err := p.targets.Upsert(ctx, job.ProjectID, target.UpsertInput{
+		Kind:       kind,
+		Identity:   identity,
+		Attributes: attrs,
+		SourceType: "run",
+		SourceID:   job.RunID.String(),
+	})
+	if err != nil {
+		return fmt.Errorf("target upsert: %w", err)
+	}
+	payload["target_id"] = t.ID.String()
+	payload["scope_effect"] = "allow"
+	log.Info("target discovered", "id", t.ID, "kind", kind, "identity", identity)
+	return nil
+}
+
+// auditQuarantine records a quarantine decision so the operator can
+// review why a finding was suppressed.
+func (p *Pool) auditQuarantine(ctx context.Context, job queue.Job, payload map[string]any, reason string) {
+	if p.auditLog == nil {
+		return
+	}
+	_, _ = p.auditLog.Append(ctx, audit.Event{
+		ProjectID:  &job.ProjectID,
+		Action:     "finding.quarantine",
+		TargetKind: job.TargetKind,
+		TargetID:   job.TargetIdentity,
+		Metadata: map[string]any{
+			"reason":           reason,
+			"job_id":           job.ID.String(),
+			"claimed_kind":     payload["target_kind"],
+			"claimed_identity": payload["target_identity"],
+		},
+	})
 }
