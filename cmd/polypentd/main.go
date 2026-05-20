@@ -23,13 +23,18 @@ import (
 	"github.com/silvance/polypent/internal/api"
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
+	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/collector/mock"
 	"github.com/silvance/polypent/internal/config"
 	"github.com/silvance/polypent/internal/project"
+	"github.com/silvance/polypent/internal/queue"
+	"github.com/silvance/polypent/internal/run"
 	"github.com/silvance/polypent/internal/scope"
 	pgstore "github.com/silvance/polypent/internal/store/postgres"
 	"github.com/silvance/polypent/internal/target"
 	"github.com/silvance/polypent/internal/telemetry"
 	"github.com/silvance/polypent/internal/version"
+	"github.com/silvance/polypent/internal/worker"
 )
 
 const binaryName = "polypentd"
@@ -105,17 +110,44 @@ func runServe(args []string) int {
 		return 1
 	}
 
-	srv := api.New(cfg.Server.Addr, cfg.Server.ShutdownTimeout, api.Deps{
-		Logger:   log,
-		Projects: projects,
-		Tokens:   tokens,
-		Audit:    auditLog,
-		Scope:    scope.NewStore(pool),
-		Targets:  target.NewStore(pool),
+	scopeStore := scope.NewStore(pool)
+	q := queue.New(pool, cfg.Queue.LeaseDuration)
+	planner := run.NewPlanner(pool, q, scopeStore, auditLog)
+	runs := run.NewStore(pool)
+
+	reg := collector.NewRegistry()
+	reg.Register(mock.New())
+
+	pool2Ctx, poolCancel := context.WithCancel(ctx)
+	defer poolCancel()
+	workerPool := worker.New(q, reg, log, worker.Options{
+		Size: cfg.Queue.Workers,
+		Poll: cfg.Queue.PollInterval,
 	})
-	log.Info("server listening", "addr", cfg.Server.Addr)
-	if err := srv.ListenAndServeWithShutdown(ctx, cfg.Server.ShutdownTimeout); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Error("server", "err", err)
+	workerDone := make(chan struct{})
+	go func() {
+		workerPool.Run(pool2Ctx)
+		close(workerDone)
+	}()
+
+	srv := api.New(cfg.Server.Addr, cfg.Server.ShutdownTimeout, api.Deps{
+		Logger:     log,
+		Projects:   projects,
+		Tokens:     tokens,
+		Audit:      auditLog,
+		Scope:      scopeStore,
+		Targets:    target.NewStore(pool),
+		Planner:    planner,
+		Runs:       runs,
+		Queue:      q,
+		Collectors: reg,
+	})
+	log.Info("server listening", "addr", cfg.Server.Addr, "workers", cfg.Queue.Workers)
+	srvErr := srv.ListenAndServeWithShutdown(ctx, cfg.Server.ShutdownTimeout)
+	poolCancel()
+	<-workerDone
+	if srvErr != nil && !errors.Is(srvErr, http.ErrServerClosed) {
+		log.Error("server", "err", srvErr)
 		return 1
 	}
 	log.Info("server stopped")

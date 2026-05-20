@@ -16,7 +16,11 @@ import (
 	"github.com/silvance/polypent/internal/api"
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
+	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/collector/mock"
 	"github.com/silvance/polypent/internal/project"
+	"github.com/silvance/polypent/internal/queue"
+	"github.com/silvance/polypent/internal/run"
 	"github.com/silvance/polypent/internal/scope"
 	pgstore "github.com/silvance/polypent/internal/store/postgres"
 	"github.com/silvance/polypent/internal/target"
@@ -66,13 +70,21 @@ func newTestServer(t *testing.T, dsn string) (*httptest.Server, auth.Token) {
 	}
 
 	slogger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	q := queue.New(pool, 5*time.Second)
+	sc := scope.NewStore(pool)
+	reg := collector.NewRegistry()
+	reg.Register(mock.New())
 	srv := api.New(":0", time.Second, api.Deps{
-		Logger:   slogger,
-		Projects: projects,
-		Tokens:   tokens,
-		Audit:    logger,
-		Scope:    scope.NewStore(pool),
-		Targets:  target.NewStore(pool),
+		Logger:     slogger,
+		Projects:   projects,
+		Tokens:     tokens,
+		Audit:      logger,
+		Scope:      sc,
+		Targets:    target.NewStore(pool),
+		Planner:    run.NewPlanner(pool, q, sc, logger),
+		Runs:       run.NewStore(pool),
+		Queue:      q,
+		Collectors: reg,
 	})
 
 	httptestSrv := httptest.NewServer(srv.Handler)

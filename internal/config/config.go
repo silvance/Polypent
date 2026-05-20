@@ -23,6 +23,13 @@ type Config struct {
 	Database Database `yaml:"database"`
 	Audit    Audit    `yaml:"audit"`
 	Log      Log      `yaml:"log"`
+	Queue    Queue    `yaml:"queue"`
+}
+
+type Queue struct {
+	Workers       int           `yaml:"workers"`
+	LeaseDuration time.Duration `yaml:"lease_duration"`
+	PollInterval  time.Duration `yaml:"poll_interval"`
 }
 
 type Server struct {
@@ -55,6 +62,11 @@ func Default() Config {
 			ShutdownTimeout: 10 * time.Second,
 		},
 		Log: Log{Level: "info", Format: "text"},
+		Queue: Queue{
+			Workers:       4,
+			LeaseDuration: 2 * time.Minute,
+			PollInterval:  500 * time.Millisecond,
+		},
 	}
 }
 
