@@ -26,6 +26,7 @@ import (
 	"github.com/silvance/polypent/internal/auth"
 	"github.com/silvance/polypent/internal/catalog"
 	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/collector/httpprobe"
 	"github.com/silvance/polypent/internal/collector/mock"
 	"github.com/silvance/polypent/internal/config"
 	"github.com/silvance/polypent/internal/external"
@@ -130,6 +131,7 @@ func runServe(args []string) int {
 	catStore := catalog.NewStore(pool)
 	reg := collector.NewRegistry()
 	reg.Register(mock.New())
+	reg.Register(httpprobe.New())
 	// Hydrate the registry from the persistent catalog.
 	if entries, err := catStore.List(ctx); err == nil {
 		for _, e := range entries {
