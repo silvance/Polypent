@@ -140,6 +140,9 @@ func (s *Store) Upsert(ctx context.Context, in Input) (UpsertResult, error) {
 	if err := in.Validate(); err != nil {
 		return UpsertResult{}, err
 	}
+	if in.Evidence == nil {
+		in.Evidence = []string{}
+	}
 	payload := []byte("{}")
 	if len(in.Extra) > 0 {
 		b, err := json.Marshal(in.Extra)

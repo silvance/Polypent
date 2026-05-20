@@ -104,13 +104,18 @@ func newFullStack(t *testing.T) *fullStack {
 		t.Fatal(err)
 	}
 
-	slogger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+	logHandler := slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})
+	if os.Getenv("POLYPENT_TEST_VERBOSE") != "" {
+		logHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
+	}
+	slogger := slog.New(logHandler)
 
 	srv := api.New(":0", time.Second, api.Deps{
 		Logger:       slogger,
 		Projects:     projects,
 		Tokens:       tokens,
 		Audit:        auditLog,
+		AuditKey:     []byte("p4-key-32-bytes-aaaaaaaaaaaaaaaaa"),
 		Scope:        sc,
 		Targets:      target.NewStore(pgPool),
 		Planner:      run.NewPlanner(pgPool, q, sc, auditLog),

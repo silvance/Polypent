@@ -29,6 +29,7 @@ type Deps struct {
 	Projects     *project.Store
 	Tokens       *auth.Store
 	Audit        *audit.Logger
+	AuditKey     []byte // signing key, reused for manifest signatures
 	Scope        *scope.Store
 	Targets      *target.Store
 	Planner      *run.Planner
@@ -76,6 +77,7 @@ func New(addr string, shutdownTimeout time.Duration, deps Deps) *Server {
 	authed.HandleFunc("GET /v1/runs/{id}", s.handleGetRun)
 	authed.HandleFunc("GET /v1/runs/{id}/jobs", s.handleListRunJobs)
 	authed.HandleFunc("POST /v1/runs/{id}/cancel", s.handleCancelRun)
+	authed.HandleFunc("GET /v1/runs/{id}/manifest", s.handleGetRunManifest)
 
 	authed.HandleFunc("GET /v1/projects/{id}/findings", s.handleListFindings)
 	authed.HandleFunc("GET /v1/artifacts/{sha}", s.handleGetArtifact)

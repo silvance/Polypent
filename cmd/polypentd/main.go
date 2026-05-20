@@ -169,6 +169,7 @@ func runServe(args []string) int {
 		Projects:     projects,
 		Tokens:       tokens,
 		Audit:        auditLog,
+		AuditKey:     []byte(cfg.Audit.SigningKey),
 		Scope:        scopeStore,
 		Targets:      target.NewStore(pool),
 		Planner:      planner,
