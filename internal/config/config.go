@@ -24,6 +24,12 @@ type Config struct {
 	Audit    Audit    `yaml:"audit"`
 	Log      Log      `yaml:"log"`
 	Queue    Queue    `yaml:"queue"`
+	Storage  Storage  `yaml:"storage"`
+}
+
+type Storage struct {
+	// ArtifactsDir is the root directory for the local artifact store.
+	ArtifactsDir string `yaml:"artifacts_dir"`
 }
 
 type Queue struct {
@@ -66,6 +72,9 @@ func Default() Config {
 			Workers:       4,
 			LeaseDuration: 2 * time.Minute,
 			PollInterval:  500 * time.Millisecond,
+		},
+		Storage: Storage{
+			ArtifactsDir: "./var/polypent/artifacts",
 		},
 	}
 }

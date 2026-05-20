@@ -81,10 +81,10 @@ func (Collector) Execute(ctx context.Context, job queue.Job, emit collector.Emit
 		if err := emit(ctx, collector.Event{
 			Kind: "finding",
 			Payload: map[string]any{
-				"kind":     "info.mock",
-				"severity": "informational",
-				"title":    fmt.Sprintf("mock finding %d for %s", i+1, job.TargetIdentity),
-				"target":   job.TargetIdentity,
+				"kind":      "info.mock",
+				"severity":  "informational",
+				"title":     fmt.Sprintf("mock finding %d for %s", i+1, job.TargetIdentity),
+				"dedup_key": fmt.Sprintf("mock:%s:%d", job.TargetIdentity, i+1),
 			},
 		}); err != nil {
 			return err

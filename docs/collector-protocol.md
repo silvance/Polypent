@@ -1,68 +1,157 @@
 # PolyPent Collector Protocol
 
-> **Status:** stub. Finalized in Phase 4 of `migration-plan.md`. This file
-> exists in Phase 0 only to reserve the contract surface and to record
-> decisions as they accrete.
+**Status:** Phase 4 stabilization. The on-wire format defined here is the
+contract collectors must follow; behavior changes ship via a bumped
+`protocol_version` string. The reference Python collector in
+`collectors/python/echo/` is the executable specification.
 
-## Purpose
+## Why a protocol exists
 
-The collector protocol is the boundary between the trusted PolyPent core
-(`polypentd`) and untrusted collector processes. Pinning the wire format
-before any real collector is written means:
+PolyPent's core (`polypentd`) owns scope, scheduling, evidence, and audit.
+Collectors do the actual work. The protocol is the boundary: the core
+never trusts a collector beyond what the protocol says it can do, and a
+collector never reasons about projects or scope beyond what the
+`JobDescriptor` hands it.
 
-- A collector author has a single, authoritative specification to target.
-- The core can ingest collector output without language-specific glue.
-- A failing collector can be replayed offline from captured NDJSON.
+## Wire transports
 
-## Default transport: NDJSON over stdio
+### Default: NDJSON over stdio
 
-The default is line-delimited JSON. One JSON object per line, UTF-8, `\n`
-terminated, no embedded newlines, soft cap on line length (TBD in Phase 4).
+- One JSON object per line, UTF-8, terminated by `\n`.
+- Lines must be at most `1 MiB`. The supervisor enforces the cap and
+  treats over-length lines as a fatal protocol error.
+- The supervisor writes a single line on stdin — the `JobDescriptor` —
+  and then closes stdin. The collector emits events on stdout. Anything
+  on stderr is captured by the supervisor as a `log` event and the
+  collector should not depend on it for protocol traffic.
 
-The collector reads its job descriptor from stdin as a single JSON object
-followed by `EOF` on stdin (or as a single NDJSON line, TBD). It emits
-events on stdout. stderr is captured by the worker as a log artifact and
-must not be parsed as protocol traffic.
+### Alternative: JSON-RPC 2.0
 
-### Event types (provisional)
+Reserved for interactive collectors that need to ask the core questions
+mid-run (e.g. a credentialed enumerator deciding whether to pivot). The
+catalog entry's `transport` field selects which one a collector uses.
+JSON-RPC over the same stdio pipe ships in a later phase; collectors
+shipping in Phase 4 use NDJSON.
 
-| `type`               | Direction        | Purpose                                    |
-|----------------------|------------------|--------------------------------------------|
-| `hello`              | collector → core | Announce name, version, protocol version   |
-| `ack`                | collector → core | Acknowledge job descriptor                 |
-| `progress`           | collector → core | `{done, total, stage}`                     |
-| `log`                | collector → core | Structured log line                        |
-| `target.discovered`  | collector → core | Propose a new target (subject to scope)    |
-| `finding`            | collector → core | Full finding payload                       |
-| `artifact.begin`     | collector → core | Begin streaming a blob                     |
-| `artifact.chunk`     | collector → core | Blob chunk (base64)                        |
-| `artifact.end`       | collector → core | Finalize a blob                            |
-| `artifact.ref`       | collector → core | Reference an on-disk file to import        |
-| `error`              | collector → core | Recoverable error with context             |
-| `done`               | collector → core | Terminal event with summary                |
+## Job descriptor
 
-The JSON Schema for each event is a Phase 4 deliverable.
+The supervisor writes exactly one of these as the first line on the
+collector's stdin:
 
-## Alternative transport: JSON-RPC 2.0
+```json
+{
+  "job_id": "uuid",
+  "run_id": "uuid",
+  "project_id": "uuid",
+  "collector": "echo",
+  "target_kind": "host",
+  "target_identity": "10.0.0.5",
+  "parameters": { "...": "..." },
+  "deadline_unix_sec": 1717891200,
+  "protocol_version": "polypent-ndjson/1"
+}
+```
 
-For interactive collectors (e.g. credentialed enumerators that must ask
-the core questions mid-run), JSON-RPC 2.0 rides the same stdio pipe in
-place of NDJSON. The transport choice is declared at registration time
-in the collector catalog entry (`protocol: "ndjson" | "jsonrpc"`).
+The target has already been scope-clamped at plan time and at dispatch
+time. **A collector MUST NOT range beyond the listed target.** Sending
+findings about other targets is treated as a scope violation: the finding
+is quarantined and an audit event is raised.
 
-The JSON-RPC method set is a Phase 4 deliverable.
+## Events
+
+Every event is a single JSON object with a discriminator field `type`
+and an optional `payload`. The supervisor records the raw line in
+`job_events` regardless of whether the platform separately ingests it.
+
+| `type`              | Direction        | Required fields                                   |
+|---------------------|------------------|---------------------------------------------------|
+| `hello`             | collector → core | `name`, `version`, `protocol_version`             |
+| `ack`               | collector → core | `job_id`                                          |
+| `progress`          | collector → core | `done`, `total`; optional `stage`                 |
+| `log`               | collector → core | `level`, `message`; optional `fields`             |
+| `target_discovered` | collector → core | `kind`, `identity`                                |
+| `artifact_ref`      | collector → core | `path`; optional `mime`, `label`                  |
+| `finding`           | collector → core | `kind`, `severity`, `title`, `dedup_key`          |
+| `error`             | collector → core | `message`; optional `code`, `fatal`               |
+| `done`              | collector → core | optional `summary`                                |
+
+### `finding`
+
+```json
+{
+  "type": "finding",
+  "payload": {
+    "kind": "info.echo",
+    "severity": "informational",
+    "title": "echo saw 10.0.0.5",
+    "description": "Reference Python collector observed the target.",
+    "dedup_key": "echo:saw:10.0.0.5",
+    "evidence_refs": ["evidence-1"],
+    "cvss": "",
+    "extra": {}
+  }
+}
+```
+
+- **`dedup_key`** is the collector's deterministic identity for the
+  finding. Re-running the same collector against the same target with
+  the same finding MUST produce the same `dedup_key`. The core uses
+  `(project_id, collector, dedup_key)` as the unique key: a re-emit
+  refreshes `last_seen_at`, severity, description, evidence, and the
+  associated run/job, but does not produce a second row.
+- **`evidence_refs`** are labels the collector used in earlier
+  `artifact_ref` events within the same job. The supervisor resolves
+  each label to the sha256 it computed when it ingested the file. If a
+  ref is already a 64-char hex string, the supervisor treats it as an
+  existing artifact sha and links it as-is.
+- **`severity`** is one of `informational`, `low`, `medium`, `high`,
+  `critical`.
+
+### `artifact_ref`
+
+```json
+{
+  "type": "artifact_ref",
+  "payload": {
+    "path": "/tmp/echo-12345.txt",
+    "mime": "text/plain",
+    "label": "evidence-1"
+  }
+}
+```
+
+The supervisor opens `path`, hashes the contents into the content-
+addressed store, and records the metadata. The path must be readable by
+the polypentd process. Phase 4 deliberately does not stream artifacts
+inline (`artifact.begin/chunk/end`); the smallest workable shape carries
+us until a collector actually needs streaming.
+
+The collector MUST NOT delete the referenced file before emitting `done`,
+because the supervisor reads it lazily from the same goroutine that
+processes the event stream.
+
+## Error model
+
+- `error` with `"fatal": true` requires the collector to exit non-zero
+  after emitting it.
+- `error` with `"fatal": false` is a recoverable error report; the
+  collector continues.
+- A non-zero exit without an `error` or `done` event is treated as a job
+  failure with the exit error as the message.
 
 ## Conformance
 
-A language-agnostic conformance suite ships in Phase 6. Every collector —
-in-tree Go, external Python, external Rust, third-party tool wrapper —
-must pass the same suite. The suite is the executable definition of this
-spec; where the suite and this prose disagree, the suite wins, and the
-prose is corrected.
+`collectors/python/echo/main.py` is the reference implementation. The
+Phase 4 integration test (`internal/api/integration_phase4_test.go`)
+runs the reference collector end-to-end through the supervisor, verifies:
 
-## Non-goals
+- the descriptor parses,
+- progress/log/artifact_ref/finding/done all appear in `job_events`,
+- the referenced file lands in the artifact store and is downloadable
+  via `GET /v1/artifacts/{sha}`,
+- a re-run with the same target produces no new finding row (dedup) but
+  advances `last_seen_at`.
 
-- Bidirectional streaming of arbitrary protobufs. NDJSON is sufficient
-  for the workloads PolyPent actually has.
-- gRPC as a primary collector transport. Reconsidered only if NDJSON +
-  JSON-RPC are shown empirically insufficient.
+A future Phase 6 conformance suite will codify this for Python, Go, Rust,
+and third-party wrappers in a way the supervisor can run against any
+catalog entry on demand.

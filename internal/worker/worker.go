@@ -12,34 +12,45 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/silvance/polypent/internal/artifact"
 	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/finding"
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
 )
 
 // Pool is a bounded set of worker goroutines.
 type Pool struct {
-	q        *queue.Queue
-	registry *collector.Registry
-	logger   *slog.Logger
-	id       string
-	size     int
-	poll     time.Duration
+	q          *queue.Queue
+	registry   *collector.Registry
+	logger     *slog.Logger
+	id         string
+	size       int
+	poll       time.Duration
+	findings   *finding.Store
+	artifacts  artifact.Store
+	artifactMD *artifact.MetaStore
 
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
 }
 
-// Options configures the pool.
+// Options configures the pool. Findings, Artifacts, and ArtifactMeta are
+// optional: when nil, worker simply records raw events without doing the
+// finding/artifact ingestion.
 type Options struct {
-	WorkerID string        // prefix; each goroutine appends -N
-	Size     int           // number of concurrent workers
-	Poll     time.Duration // fallback poll interval when no NOTIFY arrives
+	WorkerID     string
+	Size         int
+	Poll         time.Duration
+	Findings     *finding.Store
+	Artifacts    artifact.Store
+	ArtifactMeta *artifact.MetaStore
 }
 
 // New constructs a Pool. Run() actually starts the goroutines.
@@ -53,7 +64,17 @@ func New(q *queue.Queue, reg *collector.Registry, logger *slog.Logger, opts Opti
 	if opts.WorkerID == "" {
 		opts.WorkerID = "worker-" + uuid.NewString()[:8]
 	}
-	return &Pool{q: q, registry: reg, logger: logger, id: opts.WorkerID, size: opts.Size, poll: opts.Poll}
+	return &Pool{
+		q:          q,
+		registry:   reg,
+		logger:     logger,
+		id:         opts.WorkerID,
+		size:       opts.Size,
+		poll:       opts.Poll,
+		findings:   opts.Findings,
+		artifacts:  opts.Artifacts,
+		artifactMD: opts.ArtifactMeta,
+	}
 }
 
 // Run blocks until ctx is cancelled. Workers and the reclaim loop start
@@ -159,9 +180,8 @@ func (p *Pool) execute(ctx context.Context, workerID string, job queue.Job) {
 		defer cancel()
 	}
 
-	emit := func(ctx context.Context, e collector.Event) error {
-		return p.q.RecordEvent(ctx, job.ID, e.Kind, e.Payload)
-	}
+	labels := make(map[string]string) // artifact_ref label -> sha256
+	emit := p.makeEmit(job, labels, log)
 
 	err := c.Execute(jobCtx, job, emit)
 	switch {
@@ -185,4 +205,123 @@ func (p *Pool) execute(ctx context.Context, workerID string, job queue.Job) {
 			log.Warn("finish run", "err", err)
 		}
 	}
+}
+
+// makeEmit builds the per-job emit callback. It routes:
+//
+//   - "artifact_ref"   ingest the file, record metadata, remember label->sha
+//   - "finding"        resolve evidence_refs against labels, upsert finding
+//   - everything else  pass-through into job_events
+//
+// All emissions are also persisted into job_events so the operator has a
+// complete trace of what happened.
+func (p *Pool) makeEmit(job queue.Job, labels map[string]string, log *slog.Logger) collector.Emit {
+	return func(ctx context.Context, e collector.Event) error {
+		switch e.Kind {
+		case "artifact_ref":
+			if err := p.ingestArtifact(ctx, job, labels, e.Payload, log); err != nil {
+				log.Warn("ingest artifact", "err", err)
+			}
+		case "finding":
+			if err := p.ingestFinding(ctx, job, labels, e.Payload, log); err != nil {
+				log.Warn("ingest finding", "err", err)
+			}
+		}
+		return p.q.RecordEvent(ctx, job.ID, e.Kind, e.Payload)
+	}
+}
+
+func (p *Pool) ingestArtifact(ctx context.Context, job queue.Job, labels map[string]string, payload map[string]any, log *slog.Logger) error {
+	if p.artifacts == nil || p.artifactMD == nil {
+		return nil
+	}
+	path, _ := payload["path"].(string)
+	if path == "" {
+		return errors.New("artifact_ref: path required")
+	}
+	mime, _ := payload["mime"].(string)
+	label, _ := payload["label"].(string)
+	f, err := os.Open(path) //nolint:gosec // operator-controlled collector-supplied path
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	sha, size, err := p.artifacts.Put(ctx, f)
+	if err != nil {
+		return fmt.Errorf("put: %w", err)
+	}
+	if err := p.artifactMD.Record(ctx, artifact.Meta{
+		SHA256:    sha,
+		Size:      size,
+		Mime:      mime,
+		Label:     label,
+		ProjectID: &job.ProjectID,
+		JobID:     &job.ID,
+	}); err != nil {
+		return fmt.Errorf("meta: %w", err)
+	}
+	if label != "" {
+		labels[label] = sha
+	}
+	// Mutate payload so the recorded event in job_events contains the sha.
+	payload["sha256"] = sha
+	payload["size"] = size
+	log.Info("artifact ingested", "sha256", sha, "label", label, "size", size)
+	return nil
+}
+
+func (p *Pool) ingestFinding(ctx context.Context, job queue.Job, labels map[string]string, payload map[string]any, log *slog.Logger) error {
+	if p.findings == nil {
+		return nil
+	}
+	in := finding.Input{
+		ProjectID:      job.ProjectID,
+		RunID:          &job.RunID,
+		JobID:          &job.ID,
+		Collector:      job.Collector,
+		TargetKind:     job.TargetKind,
+		TargetIdentity: job.TargetIdentity,
+	}
+	if v, ok := payload["kind"].(string); ok {
+		in.Kind = v
+	}
+	if v, ok := payload["severity"].(string); ok {
+		in.Severity = finding.Severity(v)
+	}
+	if v, ok := payload["title"].(string); ok {
+		in.Title = v
+	}
+	if v, ok := payload["description"].(string); ok {
+		in.Description = v
+	}
+	if v, ok := payload["cvss"].(string); ok {
+		in.CVSS = v
+	}
+	if v, ok := payload["dedup_key"].(string); ok {
+		in.DedupKey = v
+	}
+	if refs, ok := payload["evidence_refs"].([]any); ok {
+		for _, r := range refs {
+			s, _ := r.(string)
+			if s == "" {
+				continue
+			}
+			if sha, ok := labels[s]; ok {
+				in.Evidence = append(in.Evidence, sha)
+			} else {
+				in.Evidence = append(in.Evidence, s) // assume already a sha
+			}
+		}
+	}
+	if extra, ok := payload["extra"].(map[string]any); ok {
+		in.Extra = extra
+	}
+	res, err := p.findings.Upsert(ctx, in)
+	if err != nil {
+		return err
+	}
+	payload["finding_id"] = res.Finding.ID.String()
+	payload["inserted"] = res.Inserted
+	log.Info("finding ingested", "id", res.Finding.ID, "inserted", res.Inserted)
+	return nil
 }

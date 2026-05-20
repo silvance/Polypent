@@ -10,9 +10,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/silvance/polypent/internal/artifact"
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
+	"github.com/silvance/polypent/internal/catalog"
 	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/finding"
 	"github.com/silvance/polypent/internal/project"
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
@@ -22,16 +25,20 @@ import (
 
 // Deps is the explicit dependency set the API needs.
 type Deps struct {
-	Logger     *slog.Logger
-	Projects   *project.Store
-	Tokens     *auth.Store
-	Audit      *audit.Logger
-	Scope      *scope.Store
-	Targets    *target.Store
-	Planner    *run.Planner
-	Runs       *run.Store
-	Queue      *queue.Queue
-	Collectors *collector.Registry
+	Logger       *slog.Logger
+	Projects     *project.Store
+	Tokens       *auth.Store
+	Audit        *audit.Logger
+	Scope        *scope.Store
+	Targets      *target.Store
+	Planner      *run.Planner
+	Runs         *run.Store
+	Queue        *queue.Queue
+	Collectors   *collector.Registry
+	Findings     *finding.Store
+	Artifacts    artifact.Store
+	ArtifactMeta *artifact.MetaStore
+	Catalog      *catalog.Store
 }
 
 // Server wraps an *http.Server with PolyPent's handler tree.
@@ -69,6 +76,13 @@ func New(addr string, shutdownTimeout time.Duration, deps Deps) *Server {
 	authed.HandleFunc("GET /v1/runs/{id}", s.handleGetRun)
 	authed.HandleFunc("GET /v1/runs/{id}/jobs", s.handleListRunJobs)
 	authed.HandleFunc("POST /v1/runs/{id}/cancel", s.handleCancelRun)
+
+	authed.HandleFunc("GET /v1/projects/{id}/findings", s.handleListFindings)
+	authed.HandleFunc("GET /v1/artifacts/{sha}", s.handleGetArtifact)
+
+	authed.HandleFunc("GET /v1/collectors", s.handleListCatalog)
+	authed.HandleFunc("POST /v1/collectors", s.handleUpsertCatalog)
+	authed.HandleFunc("DELETE /v1/collectors/{name}", s.handleDeleteCatalog)
 
 	authedH := chain(authed,
 		auth.Middleware(deps.Tokens),

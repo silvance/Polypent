@@ -14,10 +14,13 @@ import (
 	"time"
 
 	"github.com/silvance/polypent/internal/api"
+	"github.com/silvance/polypent/internal/artifact"
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
+	"github.com/silvance/polypent/internal/catalog"
 	"github.com/silvance/polypent/internal/collector"
 	"github.com/silvance/polypent/internal/collector/mock"
+	"github.com/silvance/polypent/internal/finding"
 	"github.com/silvance/polypent/internal/project"
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
@@ -74,17 +77,27 @@ func newTestServer(t *testing.T, dsn string) (*httptest.Server, auth.Token) {
 	sc := scope.NewStore(pool)
 	reg := collector.NewRegistry()
 	reg.Register(mock.New())
+	findings := finding.NewStore(pool)
+	artifactsFS, err := artifact.NewLocalFS(t.TempDir())
+	if err != nil {
+		t.Fatalf("artifact store: %v", err)
+	}
+	artifactMD := artifact.NewMetaStore(pool)
 	srv := api.New(":0", time.Second, api.Deps{
-		Logger:     slogger,
-		Projects:   projects,
-		Tokens:     tokens,
-		Audit:      logger,
-		Scope:      sc,
-		Targets:    target.NewStore(pool),
-		Planner:    run.NewPlanner(pool, q, sc, logger),
-		Runs:       run.NewStore(pool),
-		Queue:      q,
-		Collectors: reg,
+		Logger:       slogger,
+		Projects:     projects,
+		Tokens:       tokens,
+		Audit:        logger,
+		Scope:        sc,
+		Targets:      target.NewStore(pool),
+		Planner:      run.NewPlanner(pool, q, sc, logger),
+		Runs:         run.NewStore(pool),
+		Queue:        q,
+		Collectors:   reg,
+		Findings:     findings,
+		Artifacts:    artifactsFS,
+		ArtifactMeta: artifactMD,
+		Catalog:      catalog.NewStore(pool),
 	})
 
 	httptestSrv := httptest.NewServer(srv.Handler)

@@ -21,11 +21,15 @@ import (
 	"syscall"
 
 	"github.com/silvance/polypent/internal/api"
+	"github.com/silvance/polypent/internal/artifact"
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
+	"github.com/silvance/polypent/internal/catalog"
 	"github.com/silvance/polypent/internal/collector"
 	"github.com/silvance/polypent/internal/collector/mock"
 	"github.com/silvance/polypent/internal/config"
+	"github.com/silvance/polypent/internal/external"
+	"github.com/silvance/polypent/internal/finding"
 	"github.com/silvance/polypent/internal/project"
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
@@ -114,15 +118,37 @@ func runServe(args []string) int {
 	q := queue.New(pool, cfg.Queue.LeaseDuration)
 	planner := run.NewPlanner(pool, q, scopeStore, auditLog)
 	runs := run.NewStore(pool)
+	findings := finding.NewStore(pool)
 
+	artifactsFS, err := artifact.NewLocalFS(cfg.Storage.ArtifactsDir)
+	if err != nil {
+		log.Error("artifact store", "err", err)
+		return 1
+	}
+	artifactMD := artifact.NewMetaStore(pool)
+
+	catStore := catalog.NewStore(pool)
 	reg := collector.NewRegistry()
 	reg.Register(mock.New())
+	// Hydrate the registry from the persistent catalog.
+	if entries, err := catStore.List(ctx); err == nil {
+		for _, e := range entries {
+			if e.Transport == catalog.TransportNDJSON {
+				reg.Register(external.NewSupervisor(e.Name, e.BinaryPath, nil, 0))
+			}
+		}
+	} else {
+		log.Warn("catalog hydrate", "err", err)
+	}
 
 	pool2Ctx, poolCancel := context.WithCancel(ctx)
 	defer poolCancel()
 	workerPool := worker.New(q, reg, log, worker.Options{
-		Size: cfg.Queue.Workers,
-		Poll: cfg.Queue.PollInterval,
+		Size:         cfg.Queue.Workers,
+		Poll:         cfg.Queue.PollInterval,
+		Findings:     findings,
+		Artifacts:    artifactsFS,
+		ArtifactMeta: artifactMD,
 	})
 	workerDone := make(chan struct{})
 	go func() {
@@ -131,16 +157,20 @@ func runServe(args []string) int {
 	}()
 
 	srv := api.New(cfg.Server.Addr, cfg.Server.ShutdownTimeout, api.Deps{
-		Logger:     log,
-		Projects:   projects,
-		Tokens:     tokens,
-		Audit:      auditLog,
-		Scope:      scopeStore,
-		Targets:    target.NewStore(pool),
-		Planner:    planner,
-		Runs:       runs,
-		Queue:      q,
-		Collectors: reg,
+		Logger:       log,
+		Projects:     projects,
+		Tokens:       tokens,
+		Audit:        auditLog,
+		Scope:        scopeStore,
+		Targets:      target.NewStore(pool),
+		Planner:      planner,
+		Runs:         runs,
+		Queue:        q,
+		Collectors:   reg,
+		Findings:     findings,
+		Artifacts:    artifactsFS,
+		ArtifactMeta: artifactMD,
+		Catalog:      catStore,
 	})
 	log.Info("server listening", "addr", cfg.Server.Addr, "workers", cfg.Queue.Workers)
 	srvErr := srv.ListenAndServeWithShutdown(ctx, cfg.Server.ShutdownTimeout)
