@@ -8,7 +8,6 @@ import (
 	"github.com/silvance/polypent/internal/audit"
 	"github.com/silvance/polypent/internal/auth"
 	"github.com/silvance/polypent/internal/catalog"
-	"github.com/silvance/polypent/internal/collector"
 	"github.com/silvance/polypent/internal/external"
 )
 
@@ -121,6 +120,3 @@ func (s *Server) handleDeleteCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// suppress unused (external used only by Upsert)
-var _ = collector.NewRegistry

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/collector/params"
 	"github.com/silvance/polypent/internal/queue"
 )
 
@@ -36,9 +37,9 @@ func New() *Collector { return &Collector{} }
 func (Collector) Name() string { return Name }
 
 func (Collector) Execute(ctx context.Context, job queue.Job, emit collector.Emit) error {
-	steps := paramInt(job.Parameters, "steps", 3)
-	delay := time.Duration(paramInt(job.Parameters, "delay_ms", 0)) * time.Millisecond
-	fail := paramBool(job.Parameters, "fail", false)
+	steps := params.Int(job.Parameters, "steps", 3)
+	delay := time.Duration(params.Int(job.Parameters, "delay_ms", 0)) * time.Millisecond
+	fail := params.Bool(job.Parameters, "fail", false)
 
 	for i := 1; i <= steps; i++ {
 		if err := ctx.Err(); err != nil {
@@ -94,29 +95,4 @@ func (Collector) Execute(ctx context.Context, job queue.Job, emit collector.Emit
 		Kind:    "done",
 		Payload: map[string]any{"target": job.TargetIdentity},
 	})
-}
-
-func paramInt(p map[string]any, k string, def int) int {
-	if p == nil {
-		return def
-	}
-	switch v := p[k].(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	}
-	return def
-}
-
-func paramBool(p map[string]any, k string, def bool) bool {
-	if p == nil {
-		return def
-	}
-	if b, ok := p[k].(bool); ok {
-		return b
-	}
-	return def
 }

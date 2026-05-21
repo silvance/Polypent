@@ -12,7 +12,9 @@ import (
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
-	migpostgres "github.com/golang-migrate/migrate/v4/database/postgres"
+	// Blank import: registers the "postgres" database driver with
+	// golang-migrate so a postgres:// DSN is dispatchable.
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -76,6 +78,3 @@ func MigrateDown(dsn string) error {
 	}
 	return nil
 }
-
-// pq driver is pulled in transitively by golang-migrate's postgres driver.
-var _ = migpostgres.Postgres{}

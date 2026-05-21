@@ -145,8 +145,7 @@ func TestRustDiscoverTCPConformance(t *testing.T) {
 		Name:          "discover.tcp.syn",
 		Binary:        bin,
 		Descriptor:    d,
-		ExpectAtLeast: 0,                               // closed ports emit no findings; we just verify lifecycle
-		Timeout:       10 * conformance.Spec{}.Timeout, // 0 -> default
+		ExpectAtLeast: 0, // closed ports emit no findings; we just verify lifecycle
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,6 @@ package tlsinspect
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net"
 	"strings"
@@ -155,7 +154,3 @@ func versionName(v uint16) string {
 	}
 	return fmt.Sprintf("TLS 0x%04x", v)
 }
-
-// suppress unused linter when x509 is only referenced indirectly through
-// state.PeerCertificates' element type.
-var _ = (*x509.Certificate)(nil)

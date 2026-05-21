@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/silvance/polypent/internal/collector"
+	"github.com/silvance/polypent/internal/collector/params"
 	"github.com/silvance/polypent/internal/queue"
 )
 
@@ -62,7 +63,7 @@ func (c *Collector) Execute(ctx context.Context, job queue.Job, emit collector.E
 	if err != nil {
 		return err
 	}
-	concurrency := paramInt(job.Parameters, "concurrency", 16)
+	concurrency := params.Int(job.Parameters, "concurrency", 16)
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -167,19 +168,4 @@ func stripPort(host string) string {
 		return host[:i]
 	}
 	return host
-}
-
-func paramInt(p map[string]any, k string, def int) int {
-	if p == nil {
-		return def
-	}
-	switch v := p[k].(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	}
-	return def
 }

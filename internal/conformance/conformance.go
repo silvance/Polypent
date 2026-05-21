@@ -21,7 +21,6 @@ package conformance
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -231,14 +230,4 @@ func sliceEq(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// EnsureJSON is a small helper for callers that want to fail-fast when
-// a payload doesn't round-trip — useful when building specs.
-func EnsureJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
 }

@@ -23,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/silvance/polypent/internal/collector"
 	"github.com/silvance/polypent/internal/queue"
@@ -31,25 +30,17 @@ import (
 
 const Name = "nmap"
 
-// Collector drives an external nmap-compatible binary.
+// Collector drives an external nmap-compatible binary using
+// `nmap -oX -` so the XML lands on stdout for in-memory parsing.
 type Collector struct {
 	binary string
-	// stdoutOnly: when true, the collector reads XML on the binary's
-	// stdout (the normal nmap behavior with `-oX -`). When false, the
-	// binary is expected to write `out.xml` to its CWD — reserved for
-	// future hardening.
-	stdoutOnly bool
 }
 
 // New returns a Collector that invokes the system `nmap` binary.
-func New() *Collector {
-	return &Collector{binary: "nmap", stdoutOnly: true}
-}
+func New() *Collector { return &Collector{binary: "nmap"} }
 
 // NewWithBinary lets tests point at a stand-in.
-func NewWithBinary(binary string) *Collector {
-	return &Collector{binary: binary, stdoutOnly: true}
-}
+func NewWithBinary(binary string) *Collector { return &Collector{binary: binary} }
 
 func (Collector) Name() string { return Name }
 
@@ -206,7 +197,3 @@ func writeTemp(b []byte) (string, error) {
 	}
 	return f.Name(), nil
 }
-
-// silence unused linter when time is referenced only via subcommands
-// added in later phases.
-var _ = time.Now

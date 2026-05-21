@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -246,6 +245,3 @@ func (s *Store) ListByProject(ctx context.Context, projectID uuid.UUID, f ListFi
 	}
 	return out, rows.Err()
 }
-
-// suppress unused import in some build configs
-var _ = pgx.ErrNoRows

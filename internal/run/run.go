@@ -56,7 +56,6 @@ type PlanInput struct {
 	Targets      []scope.Target // explicit target list; required for v1
 	Priority     int
 	JobDeadline  *time.Time
-	OnDropped    func(audit.Event) // optional sink for "target dropped" events
 }
 
 // Planner builds runs and their jobs after scope-clamping the target list.
