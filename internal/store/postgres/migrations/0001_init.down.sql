@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS audit_events;
+DROP TABLE IF EXISTS api_tokens;
+DROP TABLE IF EXISTS projects;

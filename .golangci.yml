@@ -1,0 +1,29 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+  exclusions:
+    # Property tests use math/rand/v2 for input generation; that's not a
+    # crypto context and G404 doesn't apply.
+    rules:
+      - linters: [gosec]
+        path: _test\.go
+        text: "G404"
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

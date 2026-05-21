@@ -1,0 +1,112 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PolyPent API",
+    "version": "0.1.0",
+    "description": "Phase 1 surface. Endpoints will accrete as later phases ship."
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "Project": {
+        "type": "object",
+        "required": ["id", "slug", "name", "owner", "retention_days", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "slug": { "type": "string" },
+          "name": { "type": "string" },
+          "owner": { "type": "string" },
+          "description": { "type": "string" },
+          "roe_hash": { "type": "string" },
+          "contract_start": { "type": "string", "format": "date-time", "nullable": true },
+          "contract_end": { "type": "string", "format": "date-time", "nullable": true },
+          "retention_days": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProjectCreate": {
+        "type": "object",
+        "required": ["slug", "name", "owner"],
+        "properties": {
+          "slug": { "type": "string" },
+          "name": { "type": "string" },
+          "owner": { "type": "string" },
+          "description": { "type": "string" },
+          "roe_hash": { "type": "string" },
+          "contract_start": { "type": "string", "format": "date-time" },
+          "contract_end": { "type": "string", "format": "date-time" },
+          "retention_days": { "type": "integer" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      }
+    }
+  },
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "security": [],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/v1/projects": {
+      "post": {
+        "summary": "Create a project (admin only)",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectCreate" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } }
+          },
+          "400": { "description": "validation error" },
+          "403": { "description": "forbidden" },
+          "409": { "description": "slug conflict" }
+        }
+      },
+      "get": {
+        "summary": "List projects",
+        "responses": {
+          "200": {
+            "description": "list",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "projects": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } } } } } }
+          }
+        }
+      }
+    },
+    "/v1/projects/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "get": {
+        "responses": {
+          "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "404": { "description": "not found" }
+        }
+      },
+      "patch": {
+        "responses": {
+          "200": { "description": "updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Project" } } } },
+          "403": { "description": "forbidden" },
+          "404": { "description": "not found" }
+        }
+      }
+    },
+    "/v1/tokens": {
+      "post": {
+        "summary": "Issue an API token",
+        "responses": {
+          "201": { "description": "token issued; plaintext returned exactly once" },
+          "400": { "description": "invalid input" },
+          "403": { "description": "forbidden" }
+        }
+      }
+    }
+  }
+}
