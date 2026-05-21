@@ -56,6 +56,14 @@ type PlanInput struct {
 	Targets      []scope.Target // explicit target list; required for v1
 	Priority     int
 	JobDeadline  *time.Time
+
+	// SecretKeys names project-scoped secrets the worker should resolve
+	// at dispatch time and overlay into the collector's parameters as
+	// `secrets[key] = plaintext`. The key names are persisted in
+	// jobs.parameters (and so will appear in audit metadata via job
+	// events), but the values never are: resolution happens in-memory
+	// only at exec time.
+	SecretKeys []string
 }
 
 // Planner builds runs and their jobs after scope-clamping the target list.
@@ -84,10 +92,21 @@ func (p *Planner) Plan(ctx context.Context, in PlanInput) (uuid.UUID, int, int, 
 		return uuid.Nil, 0, 0, errors.New("plan: targets required")
 	}
 
+	// Bake the requested secret_keys into parameters so the worker can
+	// look them up at exec time. We never store secret values.
+	jobParams := in.Parameters
+	if len(in.SecretKeys) > 0 {
+		jobParams = make(map[string]any, len(in.Parameters)+1)
+		for k, v := range in.Parameters {
+			jobParams[k] = v
+		}
+		jobParams["secret_keys"] = in.SecretKeys
+	}
+
 	caps := []byte("{}")
-	if len(in.Parameters) > 0 {
+	if len(jobParams) > 0 {
 		var err error
-		caps, err = json.Marshal(in.Parameters)
+		caps, err = json.Marshal(jobParams)
 		if err != nil {
 			return uuid.Nil, 0, 0, fmt.Errorf("plan: parameters: %w", err)
 		}
@@ -148,7 +167,7 @@ func (p *Planner) Plan(ctx context.Context, in PlanInput) (uuid.UUID, int, int, 
 				Collector:      capName,
 				TargetKind:     string(tg.Kind),
 				TargetIdentity: tg.Identity,
-				Parameters:     in.Parameters,
+				Parameters:     jobParams,
 				Priority:       in.Priority,
 				Deadline:       in.JobDeadline,
 			})

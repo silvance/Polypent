@@ -25,6 +25,7 @@ import (
 	"github.com/silvance/polypent/internal/queue"
 	"github.com/silvance/polypent/internal/run"
 	"github.com/silvance/polypent/internal/scope"
+	"github.com/silvance/polypent/internal/secrets"
 	"github.com/silvance/polypent/internal/target"
 )
 
@@ -42,14 +43,17 @@ type Pool struct {
 	targets    *target.Store
 	scope      *scope.Store
 	auditLog   *audit.Logger
+	vault      *secrets.Vault
 
 	wg     sync.WaitGroup
 	cancel context.CancelFunc
 }
 
 // Options configures the pool. Findings, Artifacts, ArtifactMeta, Targets,
-// Scope, and Audit are optional: when nil, the worker degrades to recording
-// raw events without doing the corresponding ingestion (Phase 3 behavior).
+// Scope, Audit, and Secrets are optional: when nil, the worker degrades
+// to recording raw events without doing the corresponding ingestion
+// (Phase 3 behavior). When Secrets is nil, jobs that reference secret_keys
+// fail at exec time with a clean error.
 type Options struct {
 	WorkerID     string
 	Size         int
@@ -60,6 +64,7 @@ type Options struct {
 	Targets      *target.Store
 	Scope        *scope.Store
 	Audit        *audit.Logger
+	Secrets      *secrets.Vault
 }
 
 // New constructs a Pool. Run() actually starts the goroutines.
@@ -86,6 +91,7 @@ func New(q *queue.Queue, reg *collector.Registry, logger *slog.Logger, opts Opti
 		targets:    opts.Targets,
 		scope:      opts.Scope,
 		auditLog:   opts.Audit,
+		vault:      opts.Secrets,
 	}
 }
 
@@ -185,6 +191,16 @@ func (p *Pool) execute(ctx context.Context, workerID string, job queue.Job) {
 		return
 	}
 
+	// Resolve any requested secrets in-memory and overlay them onto a
+	// per-execution copy of job.Parameters. The on-disk row is not
+	// mutated and the secret values never reach RecordEvent.
+	if err := p.resolveSecrets(ctx, &job); err != nil {
+		log.Warn("resolve secrets", "err", err)
+		_ = p.q.Complete(ctx, job.ID, workerID, queue.StatusFailed, err.Error())
+		_ = run.MaybeFinishRun(ctx, p.q.Pool(), job.RunID)
+		return
+	}
+
 	jobCtx := ctx
 	if job.Deadline != nil {
 		var cancel context.CancelFunc
@@ -245,6 +261,60 @@ func (p *Pool) makeEmit(job queue.Job, labels map[string]string, log *slog.Logge
 		}
 		return p.q.RecordEvent(ctx, job.ID, e.Kind, e.Payload)
 	}
+}
+
+// resolveSecrets reads job.Parameters["secret_keys"] (if any), decrypts
+// each via the project's vault, and replaces the list with a map of
+// {key: plaintext} under job.Parameters["secrets"]. The original
+// secret_keys list is preserved so an audit reader can see what was
+// requested without seeing what was returned.
+//
+// The mutation is to the local job value only — Postgres is not
+// touched. The supervisor's JobDescriptor then carries the resolved
+// values; in-process Go collectors read job.Parameters["secrets"]
+// directly.
+func (p *Pool) resolveSecrets(ctx context.Context, job *queue.Job) error {
+	if job.Parameters == nil {
+		return nil
+	}
+	raw, ok := job.Parameters["secret_keys"]
+	if !ok {
+		return nil
+	}
+	var keys []string
+	switch v := raw.(type) {
+	case []string:
+		keys = v
+	case []any:
+		for _, e := range v {
+			if s, ok := e.(string); ok && s != "" {
+				keys = append(keys, s)
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	if p.vault == nil {
+		return fmt.Errorf("secrets requested (%v) but vault not configured", keys)
+	}
+	resolved := make(map[string]any, len(keys))
+	for _, k := range keys {
+		plain, err := p.vault.Decrypt(ctx, job.ProjectID, k)
+		if err != nil {
+			return fmt.Errorf("secret %q: %w", k, err)
+		}
+		resolved[k] = string(plain)
+	}
+	// Copy on write: don't mutate the original map (other call sites
+	// may hold a reference for logging/audit).
+	out := make(map[string]any, len(job.Parameters)+1)
+	for k, v := range job.Parameters {
+		out[k] = v
+	}
+	out["secrets"] = resolved
+	job.Parameters = out
+	return nil
 }
 
 func (p *Pool) ingestArtifact(ctx context.Context, job queue.Job, labels map[string]string, payload map[string]any, log *slog.Logger) error {

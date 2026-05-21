@@ -168,6 +168,7 @@ func runServe(args []string) int {
 		Targets:      target.NewStore(pool),
 		Scope:        scopeStore,
 		Audit:        auditLog,
+		Secrets:      vault,
 	})
 	workerDone := make(chan struct{})
 	go func() {

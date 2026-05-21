@@ -141,6 +141,7 @@ func newFullStack(t *testing.T) *fullStack {
 		Targets:      target.NewStore(pgPool),
 		Scope:        sc,
 		Audit:        auditLog,
+		Secrets:      vault,
 	})
 	done := make(chan struct{})
 	go func() {

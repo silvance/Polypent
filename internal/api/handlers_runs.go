@@ -25,6 +25,10 @@ type runCreateInput struct {
 	Parameters      map[string]any    `json:"parameters,omitempty"`
 	Priority        int               `json:"priority,omitempty"`
 	DeadlineSeconds int               `json:"deadline_seconds,omitempty"`
+	// SecretKeys lists project-scoped secrets to make available to the
+	// collector at exec time. The plaintext values are resolved by the
+	// worker in-memory; the key names persist in jobs.parameters.
+	SecretKeys []string `json:"secret_keys,omitempty"`
 }
 
 func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +100,7 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 		Targets:      targets,
 		Priority:     in.Priority,
 		JobDeadline:  deadline,
+		SecretKeys:   in.SecretKeys,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
