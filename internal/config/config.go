@@ -48,9 +48,15 @@ type Database struct {
 }
 
 type Audit struct {
-	// SigningKey is the HMAC key for the audit event chain. Must be at least
-	// 32 bytes of high-entropy material in production.
+	// SigningKey is the HMAC key for the audit event chain. Must be at
+	// least 32 bytes of high-entropy material in production.
 	SigningKey string `yaml:"signing_key"`
+	// ManifestSigningKey is the HMAC key for signed run manifests. Kept
+	// separate from SigningKey so that compromise of the audit key does
+	// not let an attacker forge manifests (and vice versa). When unset,
+	// it falls back to SigningKey with a one-time warning at boot —
+	// this is acceptable in development, NOT in production.
+	ManifestSigningKey string `yaml:"manifest_signing_key"`
 }
 
 type Log struct {

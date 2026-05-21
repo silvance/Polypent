@@ -12,17 +12,18 @@ import (
 
 // Project is the persisted entity.
 type Project struct {
-	ID            uuid.UUID  `json:"id"`
-	Slug          string     `json:"slug"`
-	Name          string     `json:"name"`
-	Owner         string     `json:"owner"`
-	Description   string     `json:"description"`
-	ROEHash       string     `json:"roe_hash"`
-	ContractStart *time.Time `json:"contract_start,omitempty"`
-	ContractEnd   *time.Time `json:"contract_end,omitempty"`
-	RetentionDays int        `json:"retention_days"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID                uuid.UUID  `json:"id"`
+	Slug              string     `json:"slug"`
+	Name              string     `json:"name"`
+	Owner             string     `json:"owner"`
+	Description       string     `json:"description"`
+	ROEHash           string     `json:"roe_hash"`
+	ContractStart     *time.Time `json:"contract_start,omitempty"`
+	ContractEnd       *time.Time `json:"contract_end,omitempty"`
+	RetentionDays     int        `json:"retention_days"`
+	MaxConcurrentJobs int        `json:"max_concurrent_jobs"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 // CreateInput is the API surface for creating a project.
@@ -39,13 +40,14 @@ type CreateInput struct {
 
 // UpdateInput captures the patchable fields. nil = leave alone.
 type UpdateInput struct {
-	Name          *string    `json:"name,omitempty"`
-	Owner         *string    `json:"owner,omitempty"`
-	Description   *string    `json:"description,omitempty"`
-	ROEHash       *string    `json:"roe_hash,omitempty"`
-	ContractStart *time.Time `json:"contract_start,omitempty"`
-	ContractEnd   *time.Time `json:"contract_end,omitempty"`
-	RetentionDays *int       `json:"retention_days,omitempty"`
+	Name              *string    `json:"name,omitempty"`
+	Owner             *string    `json:"owner,omitempty"`
+	Description       *string    `json:"description,omitempty"`
+	ROEHash           *string    `json:"roe_hash,omitempty"`
+	ContractStart     *time.Time `json:"contract_start,omitempty"`
+	ContractEnd       *time.Time `json:"contract_end,omitempty"`
+	RetentionDays     *int       `json:"retention_days,omitempty"`
+	MaxConcurrentJobs *int       `json:"max_concurrent_jobs,omitempty"`
 }
 
 var slugRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)

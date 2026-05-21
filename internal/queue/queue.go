@@ -143,20 +143,58 @@ func (q *Queue) Lease(ctx context.Context, workerID string) (*Job, bool, error) 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Step 1: pick a candidate queued job. We don't filter by the
+	// project's concurrency cap here because that filter cannot be
+	// evaluated race-free against committed-but-not-yet-visible peer
+	// leases; see step 2.
 	var (
-		id uuid.UUID
+		id        uuid.UUID
+		projectID uuid.UUID
+		cap_      int
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT id FROM jobs
-		WHERE status = 'queued'
-		ORDER BY priority DESC, created_at ASC
-		FOR UPDATE SKIP LOCKED
-		LIMIT 1`).Scan(&id)
+		SELECT j.id, j.project_id, p.max_concurrent_jobs
+		FROM jobs j
+		JOIN projects p ON p.id = j.project_id
+		WHERE j.status = 'queued'
+		ORDER BY j.priority DESC, j.created_at ASC
+		FOR UPDATE OF j SKIP LOCKED
+		LIMIT 1`).Scan(&id, &projectID, &cap_)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("queue: lease select: %w", err)
+	}
+
+	// Step 2: serialize per-project concurrency-cap checks via an
+	// advisory lock keyed off the project's UUID. The lock is held
+	// for the rest of this transaction. Workers competing for the
+	// same project's cap will block here rather than racing.
+	if cap_ > 0 {
+		// pg_advisory_xact_lock is keyed on int8. hashtextextended
+		// produces a stable int8 from the UUID's text form.
+		if _, err := tx.Exec(ctx,
+			`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+			projectID.String(),
+		); err != nil {
+			return nil, false, fmt.Errorf("queue: cap lock: %w", err)
+		}
+		var busy int
+		if err := tx.QueryRow(ctx,
+			`SELECT COUNT(*) FROM jobs
+			 WHERE project_id = $1 AND status IN ('leased','running')`,
+			projectID,
+		).Scan(&busy); err != nil {
+			return nil, false, fmt.Errorf("queue: cap count: %w", err)
+		}
+		if busy >= cap_ {
+			// At cap: leave the job in 'queued' (the tuple lock is
+			// released on rollback). Another worker can try a
+			// different project's job; this one will be picked up
+			// again next round.
+			return nil, false, nil
+		}
 	}
 
 	expiry := time.Now().Add(q.leaseDuration)

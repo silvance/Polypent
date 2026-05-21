@@ -113,6 +113,11 @@ func runServe(args []string) int {
 		log.Error("audit init", "err", err)
 		return 1
 	}
+	manifestKey := cfg.Audit.ManifestSigningKey
+	if manifestKey == "" {
+		log.Warn("audit.manifest_signing_key is not set; reusing audit.signing_key — set a distinct key in production")
+		manifestKey = cfg.Audit.SigningKey
+	}
 	projects := project.NewStore(pool)
 
 	if err := maybeBootstrap(ctx, log, tokens); err != nil {
@@ -181,7 +186,7 @@ func runServe(args []string) int {
 		Projects:     projects,
 		Tokens:       tokens,
 		Audit:        auditLog,
-		AuditKey:     []byte(cfg.Audit.SigningKey),
+		ManifestKey:  []byte(manifestKey),
 		Scope:        scopeStore,
 		Targets:      target.NewStore(pool),
 		Planner:      planner,

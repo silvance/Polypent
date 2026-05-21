@@ -117,7 +117,7 @@ func newFullStack(t *testing.T) *fullStack {
 		Projects:     projects,
 		Tokens:       tokens,
 		Audit:        auditLog,
-		AuditKey:     []byte("p4-key-32-bytes-aaaaaaaaaaaaaaaaa"),
+		ManifestKey:  []byte("p4-mkey-32-bytes-aaaaaaaaaaaaaaaaa"),
 		Scope:        sc,
 		Targets:      target.NewStore(pgPool),
 		Planner:      run.NewPlanner(pgPool, q, sc, auditLog),

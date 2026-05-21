@@ -35,7 +35,7 @@ func (s *Server) handleGetRunManifest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	sig, err := manifest.Sign(m, s.deps.AuditKey)
+	sig, err := manifest.Sign(m, s.deps.ManifestKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -57,6 +57,6 @@ func (s *Server) handleGetRunManifest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, manifest.Signed{
 		Manifest:  m,
 		Signature: sig,
-		KeyID:     "audit-signing-key",
+		KeyID:     "manifest-signing-key",
 	})
 }

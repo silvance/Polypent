@@ -90,7 +90,7 @@ func newTestServer(t *testing.T, dsn string) (*httptest.Server, auth.Token) {
 		Projects:     projects,
 		Tokens:       tokens,
 		Audit:        logger,
-		AuditKey:     []byte("test-key-32-bytes-aaaaaaaaaaaaaaaa"),
+		ManifestKey:  []byte("test-mkey-32-bytes-aaaaaaaaaaaaaaa"),
 		Scope:        sc,
 		Targets:      target.NewStore(pool),
 		Planner:      run.NewPlanner(pool, q, sc, logger),

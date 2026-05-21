@@ -30,7 +30,7 @@ type Deps struct {
 	Projects     *project.Store
 	Tokens       *auth.Store
 	Audit        *audit.Logger
-	AuditKey     []byte // signing key, reused for manifest signatures
+	ManifestKey  []byte // signs run manifests; separate from the audit chain key
 	Scope        *scope.Store
 	Targets      *target.Store
 	Planner      *run.Planner

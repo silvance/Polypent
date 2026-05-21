@@ -132,6 +132,8 @@ events to cover their tracks.
 - The signing key currently lives in `audit.signing_key` in the YAML
   config. An attacker with both the database AND the config file can
   recompute valid hashes. A KMS-resident key (Phase 7+) closes this.
+  `audit.manifest_signing_key` is now a separate config key so
+  compromise of one no longer compromises the other.
 
 ### T5 — Evidence tampering
 
@@ -165,7 +167,10 @@ thousands of runs and exhausts workers / database connections.
 *Gaps*:
 - No global API rate limit. An automation token can submit
   POST /v1/runs at arbitrary frequency.
-- No per-project quota on number of running jobs.
+- ~~No per-project quota on number of running jobs.~~ Closed:
+  `projects.max_concurrent_jobs` caps in-flight (leased + running)
+  jobs per project; the lease query takes a per-project advisory
+  lock so the cap is race-free under concurrent workers.
 
 ## Out of scope (intentionally)
 

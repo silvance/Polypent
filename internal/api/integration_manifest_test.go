@@ -63,7 +63,7 @@ func TestRunManifestSignedAndVerifies(t *testing.T) {
 		t.Fatalf("decode: %v body=%s", err, body)
 	}
 
-	key := []byte("p4-key-32-bytes-aaaaaaaaaaaaaaaaa")
+	key := []byte("p4-mkey-32-bytes-aaaaaaaaaaaaaaaaa")
 	ok, err := manifest.Verify(signed.Manifest, signed.Signature, key)
 	if err != nil {
 		t.Fatal(err)
